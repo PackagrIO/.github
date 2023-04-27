@@ -39,6 +39,78 @@ Packagr handles all of that (and more!) for you. It pretty much guarantees that 
 
 You can use Packagr to automate creating a new release from a pull request or from the latest code on your default branch.
 
+## Github Action
+
+The Packagr suite of tools is available via language-specific Github Actions. They are easy to drop into your existing build/release pipeline
+
+```yaml
+name: Release
+# This workflow is triggered manually
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump_type:
+        description: 'Version Bump Type (major, minor, patch)'
+        required: true
+        default: 'patch'
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    container: golang:1.18
+    env:
+      # GO projects are sensitive to the GOROOT/GOPATH, this variable is unnecessary for non-go builds. 
+      PROJECT_PATH: /go/src/github.com/my_username/my_repo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Bump version
+        id: bump_version
+        uses: packagrio/action-bumpr-go@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          version_bump_type: ${{ github.event.inputs.version_bump_type }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          mkdir -p $PROJECT_PATH
+          cp -a $GITHUB_WORKSPACE/. $PROJECT_PATH/
+          cd $PROJECT_PATH
+
+          go mod vendor
+          go test -mod vendor -v -tags "static" ./...
+         
+          go build -mod vendor -o my-app-linux-amd64 -tags "static" cmd/my_app/my_app.go
+
+          chmod +x my-app-linux-amd64
+
+          # restore modified dir to GH workspace.
+          cp -arf $PROJECT_PATH/. $GITHUB_WORKSPACE/
+      - name: Commit Changes
+        id: commit
+        uses: packagrio/action-releasr-go@master
+        env:
+          # This is necessary in order to push a commit to the repo
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Leave this line unchanged
+      - name: Publish Release
+        id: publish
+        uses: packagrio/action-publishr-go@master
+        env:
+          # This is necessary in order to push a commit to the repo
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Leave this line unchanged
+        with:
+          upload_assets: 'my-app-linux-amd64'
+```
+
+
+
+
 ## Automated pull request processing:
 
 Here's how to use __docker__ to merge a pull request to your Ruby library
